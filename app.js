@@ -96,7 +96,7 @@ function ensureBenchMembers(benchList) {
 }
 
 // 本番公開URL (Vercel)
-const PRODUCTION_URL = 'https://amado-rotation-pthoshina-3285s-projects.vercel.app';
+const PRODUCTION_URL = 'https://amado-rotation.vercel.app';
 
 // アプリ全体の状態
 const state = {
