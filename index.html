@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#1a365d">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>バレーボール ローテーション</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- ヘッダー -->
+    <header class="app-header">
+      <div class="header-main">
+        <!-- ロゴ画像エリア（添付画像の「🏐 バレーボール ローテーション」から差し替え） -->
+        <div class="header-logo-container">
+          <img src="ロゴ.png" alt="AMADO VC" class="header-logo">
+        </div>
+        <div class="mode-tabs">
+          <button id="mode8Btn" class="mode-tab active" data-mode="8">8人制</button>
+          <button id="mode9Btn" class="mode-tab" data-mode="9">9人制</button>
+        </div>
+      </div>
+
+      <!-- 日付・大会名（コート上部） -->
+      <div class="match-info-card">
+        <div class="info-row">
+          <div class="input-group date-group">
+            <span class="input-icon">📅</span>
+            <input type="text" id="matchDate" placeholder="日付 (例: 20260216)" value="">
+          </div>
+          <div class="input-group title-group">
+            <span class="input-icon">🏆</span>
+            <input type="text" id="matchTitle" placeholder="大会名 (例: 長作招待)" value="">
+          </div>
+        </div>
+        <div class="header-action-row">
+          <button id="saveBtn" class="btn btn-save" title="保存先を指定して保存">
+            <span>💾 保存</span>
+          </button>
+          <button id="historyBtn" class="btn btn-secondary" title="保存済みローテーション一覧">
+            <span>📂 読込 (<span id="savedCount">0</span>)</span>
+          </button>
+          <button id="exportImgBtn" class="btn btn-share" title="画像出力">
+            <span>📷 画像出力</span>
+          </button>
+          <button id="editMembersBtn" class="btn btn-secondary" title="メンバー一括編集">
+            <span>👥 メンバー</span>
+          </button>
+          <button id="shareAppBtn" class="btn btn-url" title="メンバー共有URL・QRコード表示">
+            <span>🔗 共有URL</span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- メインコンテンツ：コート表示 -->
+    <main class="court-wrapper">
+      <!-- ローテーション状況表示 -->
+      <div class="rotation-status-bar">
+        <div class="status-badge" id="rotationBadge">ローテーション 1 / 8</div>
+        <div class="serving-badge" id="servingBadge">
+          <span class="ball-icon">🏐</span> サーブ: <strong id="serverName">-</strong>
+        </div>
+      </div>
+
+      <!-- コート盤面 -->
+      <div class="court-container" id="courtContainer">
+        <!-- ネットライン表示 -->
+        <div class="net-banner">
+          <span class="net-mesh"></span>
+          <span class="net-label">── NET ネット ──</span>
+          <span class="net-mesh"></span>
+        </div>
+
+        <div class="court-body" id="courtBody">
+          <!-- アタックライン (3m線) -->
+          <div class="court-line attack-line"></div>
+          <!-- センターマーカー -->
+          <div class="court-center-marker"></div>
+          <!-- サーブエリア表示（右下） -->
+          <div class="serve-zone-marker">
+            <span>サーブ位置</span>
+          </div>
+
+          <!-- 選手カードコンテナ -->
+          <div id="playersContainer" class="players-container"></div>
+        </div>
+      </div>
+    </main>
+
+    <!-- 下部操作コントロールバー -->
+    <footer class="app-footer">
+      <div class="controls-row">
+        <button id="prevBtn" class="control-btn btn-prev" title="前のローテーションに戻る">
+          <span class="icon">◀</span>
+          <span class="label">戻る</span>
+        </button>
+        <button id="nextBtn" class="control-btn btn-next" title="次のローテーションに進む">
+          <span class="icon">🔄</span>
+          <span class="label">ローテ進む</span>
+        </button>
+        <button id="resetBtn" class="control-btn btn-reset" title="初期配置に戻す">
+          <span class="icon">↺</span>
+          <span class="label">リセット</span>
+        </button>
+      </div>
+    </footer>
+  </div>
+
+  <!-- 選手個別編集モーダル -->
+  <div id="playerModal" class="modal-overlay" style="display: none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="modalPlayerTitle">選手情報の編集</h3>
+        <button class="modal-close-btn" id="closePlayerModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="editPlayerName">名前</label>
+          <input type="text" id="editPlayerName" maxlength="10" placeholder="選手名">
+        </div>
+        <div class="form-group">
+          <label for="editPlayerNumber">背番号</label>
+          <input type="number" id="editPlayerNumber" min="1" max="99" placeholder="背番号">
+        </div>
+        <div class="form-group">
+          <label for="editPlayerPos">ポジション役割名</label>
+          <input type="text" id="editPlayerPos" maxlength="10" placeholder="例: レフト, セッター">
+        </div>
+        <div class="form-group">
+          <label>カラー</label>
+          <div class="color-palette" id="colorPalette"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="savePlayerModalBtn" class="btn btn-primary full-width">完了</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- メンバー一括編集モーダル -->
+  <div id="membersModal" class="modal-overlay" style="display: none;">
+    <div class="modal-content modal-large">
+      <div class="modal-header">
+        <h3>👥 メンバー一覧編集</h3>
+        <button class="modal-close-btn" id="closeMembersModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-note">※初期配置（1〜8番/9番）の選手名・背番号を設定できます。</p>
+        <div class="members-edit-list" id="membersEditList"></div>
+      </div>
+      <div class="modal-footer">
+        <button id="saveMembersModalBtn" class="btn btn-primary full-width">一括保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 保存済み一覧モーダル -->
+  <div id="historyModal" class="modal-overlay" style="display: none;">
+    <div class="modal-content modal-large">
+      <div class="modal-header">
+        <h3>📂 保存済みローテーション一覧</h3>
+        <button class="modal-close-btn" id="closeHistoryModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="historyList" class="history-list"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary full-width" id="closeHistoryModalBtn">閉じる</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- メンバー共有・URL表示モーダル -->
+  <div id="shareModal" class="modal-overlay" style="display: none;">
+    <div class="modal-content modal-share">
+      <div class="modal-header">
+        <h3>🔗 メンバー共有URL</h3>
+        <button class="modal-close-btn" id="closeShareModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="share-desc">同じWi-Fi（LAN）に接続したスマートフォンで、以下のQRコードまたはURLを開くとアプリを試せます。</p>
+        
+        <!-- QRコード描画エリア -->
+        <div class="qr-container">
+          <div id="qrCodeWrapper" class="qr-box"></div>
+          <span class="qr-label">スマホのカメラでスキャン</span>
+        </div>
+
+        <!-- URL表示・コピー -->
+        <div class="url-copy-box">
+          <input type="text" id="shareUrlInput" readonly value="">
+          <button id="copyUrlBtn" class="btn btn-primary">コピー</button>
+        </div>
+
+        <div class="share-note-card">
+          <h4>📱 スマホでの共有方法</h4>
+          <ul>
+            <li><strong>同じWi-Fi接続時:</strong> 上記URLで直接開くことができます。</li>
+            <li><strong>LINEで共有する場合:</strong> URLをコピーしてトークルームに送信してください。</li>
+            <li><strong>ホーム画面に追加:</strong> スマホのブラウザで開いた後「ホーム画面に追加」すると、全画面アプリとして使えます。</li>
+          </ul>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary full-width" id="closeShareModalBtn">閉じる</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 画像出力用非表示Canvas -->
+  <canvas id="exportCanvas" style="display: none;"></canvas>
+
+  <script src="app.js"></script>
+</body>
+</html>
