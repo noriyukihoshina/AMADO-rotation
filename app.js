@@ -71,8 +71,8 @@ const POSITIONS_9 = {
   1: { top: 78, left: 80, name: '後ライト(サーブ)' }
 };
 
-// ローカルネットワーク共有用IP
-const SERVER_LAN_URL = 'http://192.168.0.204:8080/';
+// 本番公開URL (Vercel)
+const PRODUCTION_URL = 'https://amado-rotation-pthoshina-3285s-projects.vercel.app';
 
 // アプリ全体の状態
 const state = {
@@ -677,10 +677,10 @@ function deleteHistoryItem(id) {
  * 共有URL・QRコードモーダルを開く
  */
 function openShareModal() {
-  // 現在開いているURLまたはLAN内アクセス用URL
-  let targetUrl = window.location.href;
-  if (targetUrl.startsWith('file:') || targetUrl.includes('localhost') || targetUrl.includes('127.0.0.1')) {
-    targetUrl = SERVER_LAN_URL;
+  // Vercel本番公開URLを優先表示
+  let targetUrl = PRODUCTION_URL;
+  if (!targetUrl || window.location.href.includes('vercel.app')) {
+    targetUrl = window.location.href;
   }
 
   elements.shareUrlInput.value = targetUrl;
