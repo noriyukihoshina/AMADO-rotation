@@ -76,8 +76,6 @@
         </div>
 
         <div class="court-body" id="courtBody">
-          <!-- アタックライン (3m線) -->
-          <div class="court-line attack-line"></div>
           <!-- センターマーカー -->
           <div class="court-center-marker"></div>
           <!-- サーブエリア表示（右下） -->
@@ -126,7 +124,7 @@
           <label for="editPlayerNumber">背番号</label>
           <input type="number" id="editPlayerNumber" min="1" max="99" placeholder="背番号">
         </div>
-        <div class="form-group">
+        <div class="form-group" style="display: none;">
           <label for="editPlayerPos">ポジション役割名</label>
           <input type="text" id="editPlayerPos" maxlength="10" placeholder="例: レフト, セッター">
         </div>
@@ -149,7 +147,7 @@
         <button class="modal-close-btn" id="closeMembersModal">&times;</button>
       </div>
       <div class="modal-body">
-        <p class="modal-note">※初期配置（1〜8番/9番）の選手名・背番号を設定できます。</p>
+        <p class="modal-note">※ドラッグ＆ドロップで出場メンバーの順番入替や控えとの交代ができます。</p>
         <div class="members-edit-list" id="membersEditList"></div>
       </div>
       <div class="modal-footer">
@@ -182,8 +180,6 @@
         <button class="modal-close-btn" id="closeShareModal">&times;</button>
       </div>
       <div class="modal-body">
-        <p class="share-desc">同じWi-Fi（LAN）に接続したスマートフォンで、以下のQRコードまたはURLを開くとアプリを試せます。</p>
-        
         <!-- QRコード描画エリア -->
         <div class="qr-container">
           <div id="qrCodeWrapper" class="qr-box"></div>
@@ -194,15 +190,6 @@
         <div class="url-copy-box">
           <input type="text" id="shareUrlInput" readonly value="">
           <button id="copyUrlBtn" class="btn btn-primary">コピー</button>
-        </div>
-
-        <div class="share-note-card">
-          <h4>📱 スマホでの共有方法</h4>
-          <ul>
-            <li><strong>同じWi-Fi接続時:</strong> 上記URLで直接開くことができます。</li>
-            <li><strong>LINEで共有する場合:</strong> URLをコピーしてトークルームに送信してください。</li>
-            <li><strong>ホーム画面に追加:</strong> スマホのブラウザで開いた後「ホーム画面に追加」すると、全画面アプリとして使えます。</li>
-          </ul>
         </div>
       </div>
       <div class="modal-footer">

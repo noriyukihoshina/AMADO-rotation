@@ -71,6 +71,30 @@ const POSITIONS_9 = {
   1: { top: 78, left: 80, name: '後ライト(サーブ)' }
 };
 
+// 控えメンバー（5名）のデフォルト定義
+const DEFAULT_BENCH = [
+  { id: 'bench-1', number: 10, name: '', role: '控え', color: '#2563eb' },
+  { id: 'bench-2', number: 11, name: '', role: '控え', color: '#2563eb' },
+  { id: 'bench-3', number: 12, name: '', role: '控え', color: '#2563eb' },
+  { id: 'bench-4', number: 13, name: '', role: '控え', color: '#2563eb' },
+  { id: 'bench-5', number: 14, name: '', role: '控え', color: '#2563eb' }
+];
+
+function ensureBenchMembers(benchList) {
+  const result = Array.isArray(benchList) ? JSON.parse(JSON.stringify(benchList)) : [];
+  while (result.length < 5) {
+    const nextIdx = result.length + 1;
+    result.push({
+      id: `bench-${Date.now()}-${nextIdx}`,
+      number: 10 + result.length,
+      name: '',
+      role: '控え',
+      color: '#2563eb'
+    });
+  }
+  return result.slice(0, 5);
+}
+
 // 本番公開URL (Vercel)
 const PRODUCTION_URL = 'https://amado-rotation-pthoshina-3285s-projects.vercel.app';
 
@@ -81,6 +105,7 @@ const state = {
   matchDate: '20260216',
   matchTitle: '長作招待',
   members: JSON.parse(JSON.stringify(DEFAULT_MEMBERS_8)),
+  bench: JSON.parse(JSON.stringify(DEFAULT_BENCH)),
   editingMemberId: null
 };
 
@@ -208,6 +233,7 @@ function switchMode(newMode) {
     elements.mode9Btn.classList.add('active');
     state.members = JSON.parse(JSON.stringify(DEFAULT_MEMBERS_9));
   }
+  state.bench = ensureBenchMembers(state.bench);
 
   autoSaveCurrent();
   renderCourt();
@@ -321,7 +347,6 @@ function renderCourt() {
     card.innerHTML = `
       <div class="player-badge" style="background-color: ${member.color || '#2563eb'};">
         <span class="player-number">${member.number}</span>
-        <span class="pos-tag">${posCoord.name.split('(')[0]}</span>
       </div>
       <div class="player-name-label">${escapeHtml(member.name)}</div>
     `;
@@ -404,40 +429,286 @@ function selectColorChip(targetColor) {
   });
 }
 
-// メンバー一括編集モーダル
+// メンバーモーダル編集用の作業配列と状態
+let modalWorkingList = [];
+let dragSourceIdx = null;
+
+// メンバー一括編集モーダルを開く
 function openMembersModal() {
-  elements.membersEditList.innerHTML = '';
-  state.members.forEach((m, idx) => {
-    const row = document.createElement('div');
-    row.className = 'member-edit-row';
-    row.innerHTML = `
-      <span class="member-idx">${idx + 1}</span>
-      <input type="number" class="edit-num" value="${m.number}" min="1" max="99" title="背番号">
-      <input type="text" class="edit-name" value="${escapeHtml(m.name)}" maxlength="10" placeholder="名前">
-      <input type="text" class="edit-pos" value="${escapeHtml(m.role || '')}" maxlength="10" placeholder="役割">
-    `;
-    elements.membersEditList.appendChild(row);
-  });
+  state.bench = ensureBenchMembers(state.bench);
+
+  // 出場メンバー (mode名) + 控えメンバー (5名) をディープコピーして結合
+  modalWorkingList = [
+    ...JSON.parse(JSON.stringify(state.members)),
+    ...JSON.parse(JSON.stringify(state.bench))
+  ];
+
+  renderMembersEditList();
   elements.membersModal.style.display = 'flex';
 }
 
 function closeMembersModal() {
+  closeColorPickerPopover();
   elements.membersModal.style.display = 'none';
 }
 
-function saveMembersModal() {
-  const rows = elements.membersEditList.querySelectorAll('.member-edit-row');
-  rows.forEach((row, idx) => {
-    if (state.members[idx]) {
-      const numVal = parseInt(row.querySelector('.edit-num').value, 10);
-      const nameVal = row.querySelector('.edit-name').value.trim();
-      const posVal = row.querySelector('.edit-pos').value.trim();
+// メンバー編集リストのレンダリング
+function renderMembersEditList() {
+  closeColorPickerPopover();
+  elements.membersEditList.innerHTML = '';
 
-      if (!isNaN(numVal)) state.members[idx].number = numVal;
-      if (nameVal) state.members[idx].name = nameVal;
-      state.members[idx].role = posVal;
+  // 出場メンバーセクションラベル
+  const activeLabel = document.createElement('div');
+  activeLabel.className = 'members-section-label';
+  activeLabel.textContent = `🏐 出場メンバー (${state.mode}名)`;
+  elements.membersEditList.appendChild(activeLabel);
+
+  modalWorkingList.forEach((m, idx) => {
+    // 控えメンバー（10番目以降/9人制なら10番目〜、8人制なら9番目〜）の直前に控えラベル
+    if (idx === state.mode) {
+      const benchLabel = document.createElement('div');
+      benchLabel.className = 'members-section-label bench-label';
+      benchLabel.textContent = '🪑 控えメンバー (5名)';
+      elements.membersEditList.appendChild(benchLabel);
+    }
+
+    const isBench = (idx >= state.mode);
+    const row = document.createElement('div');
+    row.className = `member-edit-row ${isBench ? 'bench-row' : ''}`;
+    row.setAttribute('data-idx', idx);
+    row.draggable = true;
+
+    // 通し番号（出場メンバーは1〜8/9、控えメンバーは空欄＝番号なし）
+    const idxText = isBench ? '' : `${idx + 1}`;
+
+    row.innerHTML = `
+      <div class="drag-handle" title="ドラッグして並び替え・入替">☰</div>
+      <span class="member-idx ${isBench ? 'bench-idx' : ''}">${idxText}</span>
+      <input type="number" class="edit-num" value="${m.number !== undefined ? m.number : ''}" min="1" max="99" placeholder="背番" title="背番号">
+      <input type="text" class="edit-name" value="${escapeHtml(m.name || '')}" maxlength="10" placeholder="${isBench ? '控え選手名' : '選手名'}">
+      <button type="button" class="edit-color-btn" style="background-color: ${m.color || '#2563eb'};" title="カラー変更"></button>
+    `;
+
+    // 入力値変更時に即座に modalWorkingList に同期
+    const numInput = row.querySelector('.edit-num');
+    numInput.addEventListener('input', (e) => {
+      const val = parseInt(e.target.value, 10);
+      modalWorkingList[idx].number = isNaN(val) ? '' : val;
+    });
+
+    const nameInput = row.querySelector('.edit-name');
+    nameInput.addEventListener('input', (e) => {
+      modalWorkingList[idx].name = e.target.value;
+    });
+
+    // カラー変更ボタン
+    const colorBtn = row.querySelector('.edit-color-btn');
+    colorBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openColorPickerPopover(colorBtn, idx);
+    });
+
+    // ドラッグ＆ドロップ（PC・スマホ両対応）
+    setupDragAndDropEvents(row, idx);
+
+    elements.membersEditList.appendChild(row);
+  });
+}
+
+// 入力欄の現在の値を modalWorkingList に同期
+function syncWorkingListFromInputs() {
+  const rows = elements.membersEditList.querySelectorAll('.member-edit-row');
+  rows.forEach((row) => {
+    const idx = parseInt(row.getAttribute('data-idx'), 10);
+    if (!isNaN(idx) && modalWorkingList[idx]) {
+      const numInput = row.querySelector('.edit-num');
+      const nameInput = row.querySelector('.edit-name');
+      if (numInput) {
+        const val = parseInt(numInput.value, 10);
+        modalWorkingList[idx].number = isNaN(val) ? '' : val;
+      }
+      if (nameInput) {
+        modalWorkingList[idx].name = nameInput.value;
+      }
     }
   });
+}
+
+// メンバーの入れ替え（スワップ）
+function swapMembers(fromIdx, toIdx) {
+  if (fromIdx === toIdx || fromIdx == null || toIdx == null) return;
+  syncWorkingListFromInputs();
+  const temp = modalWorkingList[fromIdx];
+  modalWorkingList[fromIdx] = modalWorkingList[toIdx];
+  modalWorkingList[toIdx] = temp;
+  renderMembersEditList();
+}
+
+// ドラッグ＆ドロップイベント設定（PC＆スマホ両対応）
+function setupDragAndDropEvents(row, idx) {
+  // --- PC / マウス用 (HTML5 Drag and Drop) ---
+  row.addEventListener('dragstart', (e) => {
+    syncWorkingListFromInputs();
+    dragSourceIdx = idx;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', String(idx));
+    setTimeout(() => row.classList.add('is-dragging'), 0);
+  });
+
+  row.addEventListener('dragenter', (e) => {
+    e.preventDefault();
+    if (dragSourceIdx !== null && dragSourceIdx !== idx) {
+      row.classList.add('drag-over');
+    }
+  });
+
+  row.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  });
+
+  row.addEventListener('dragleave', () => {
+    row.classList.remove('drag-over');
+  });
+
+  row.addEventListener('drop', (e) => {
+    e.preventDefault();
+    row.classList.remove('drag-over');
+    if (dragSourceIdx !== null && dragSourceIdx !== idx) {
+      swapMembers(dragSourceIdx, idx);
+    }
+  });
+
+  row.addEventListener('dragend', () => {
+    document.querySelectorAll('.member-edit-row').forEach(r => {
+      r.classList.remove('is-dragging', 'drag-over');
+    });
+    dragSourceIdx = null;
+  });
+
+  // --- スマートフォン用 (Touch Events) ---
+  const handle = row.querySelector('.drag-handle');
+  let currentTouchTargetIdx = null;
+
+  handle.addEventListener('touchstart', () => {
+    syncWorkingListFromInputs();
+    dragSourceIdx = idx;
+    row.classList.add('is-dragging');
+  }, { passive: true });
+
+  handle.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    const touch = e.touches[0];
+    const elemUnderTouch = document.elementFromPoint(touch.clientX, touch.clientY);
+    const targetRow = elemUnderTouch ? elemUnderTouch.closest('.member-edit-row') : null;
+
+    document.querySelectorAll('.member-edit-row').forEach(r => r.classList.remove('drag-over'));
+
+    if (targetRow && targetRow !== row) {
+      const targetIdx = parseInt(targetRow.getAttribute('data-idx'), 10);
+      if (!isNaN(targetIdx)) {
+        targetRow.classList.add('drag-over');
+        currentTouchTargetIdx = targetIdx;
+      }
+    } else {
+      currentTouchTargetIdx = null;
+    }
+  }, { passive: false });
+
+  handle.addEventListener('touchend', () => {
+    document.querySelectorAll('.member-edit-row').forEach(r => {
+      r.classList.remove('is-dragging', 'drag-over');
+    });
+
+    if (dragSourceIdx !== null && currentTouchTargetIdx !== null && dragSourceIdx !== currentTouchTargetIdx) {
+      swapMembers(dragSourceIdx, currentTouchTargetIdx);
+    }
+    dragSourceIdx = null;
+    currentTouchTargetIdx = null;
+  });
+}
+
+// カラー選択ポップオーバー
+function openColorPickerPopover(anchorBtn, memberIdx) {
+  closeColorPickerPopover();
+
+  const popover = document.createElement('div');
+  popover.className = 'color-picker-popover';
+  popover.id = 'colorPickerPopover';
+
+  COLOR_PRESETS.forEach(color => {
+    const chip = document.createElement('div');
+    chip.className = 'popover-chip';
+    chip.style.backgroundColor = color;
+    if (modalWorkingList[memberIdx] && modalWorkingList[memberIdx].color === color) {
+      chip.classList.add('selected');
+    }
+
+    chip.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (modalWorkingList[memberIdx]) {
+        modalWorkingList[memberIdx].color = color;
+        anchorBtn.style.backgroundColor = color;
+      }
+      closeColorPickerPopover();
+    });
+
+    popover.appendChild(chip);
+  });
+
+  document.body.appendChild(popover);
+
+  const rect = anchorBtn.getBoundingClientRect();
+  const popoverW = 200;
+  let left = rect.right - popoverW;
+  if (left < 10) left = 10;
+  let top = rect.bottom + 6;
+  if (top + 100 > window.innerHeight) {
+    top = Math.max(10, rect.top - 90);
+  }
+
+  popover.style.left = `${left}px`;
+  popover.style.top = `${top}px`;
+
+  const onDocClick = (e) => {
+    if (!popover.contains(e.target) && e.target !== anchorBtn) {
+      closeColorPickerPopover();
+      document.removeEventListener('click', onDocClick);
+    }
+  };
+  setTimeout(() => {
+    document.addEventListener('click', onDocClick);
+  }, 10);
+}
+
+function closeColorPickerPopover() {
+  const pop = document.getElementById('colorPickerPopover');
+  if (pop && pop.parentNode) {
+    pop.parentNode.removeChild(pop);
+  }
+}
+
+// 一括保存
+function saveMembersModal() {
+  syncWorkingListFromInputs();
+
+  // 出場メンバー (state.mode 名)
+  state.members = modalWorkingList.slice(0, state.mode).map((m, i) => ({
+    id: m.id || (i + 1),
+    number: m.number !== '' && !isNaN(m.number) ? parseInt(m.number, 10) : (i + 1),
+    name: m.name && m.name.trim() ? m.name.trim() : `選手${i + 1}`,
+    role: m.role || '',
+    color: m.color || '#2563eb'
+  }));
+
+  // 控えメンバー (5名)
+  state.bench = modalWorkingList.slice(state.mode, state.mode + 5).map((m, i) => ({
+    id: m.id || `bench-${i + 1}`,
+    number: m.number !== '' && !isNaN(m.number) ? parseInt(m.number, 10) : (10 + i),
+    name: m.name ? m.name.trim() : '',
+    role: '控え',
+    color: m.color || '#2563eb'
+  }));
 
   closeMembersModal();
   renderCourt();
@@ -456,7 +727,8 @@ function autoSaveCurrent() {
       rotationIndex: state.rotationIndex,
       matchDate: state.matchDate,
       matchTitle: state.matchTitle,
-      members: state.members
+      members: state.members,
+      bench: state.bench
     };
     localStorage.setItem(STORAGE_KEY_CURRENT, JSON.stringify(data));
   } catch (e) {
@@ -474,6 +746,7 @@ function loadSavedData() {
       state.matchDate = data.matchDate !== undefined ? data.matchDate : '20260216';
       state.matchTitle = data.matchTitle !== undefined ? data.matchTitle : '長作招待';
       state.members = data.members && data.members.length ? data.members : JSON.parse(JSON.stringify(DEFAULT_MEMBERS_8));
+      state.bench = ensureBenchMembers(data.bench);
 
       elements.matchDate.value = state.matchDate;
       elements.matchTitle.value = state.matchTitle;
@@ -487,6 +760,7 @@ function loadSavedData() {
     } else {
       elements.matchDate.value = state.matchDate;
       elements.matchTitle.value = state.matchTitle;
+      state.bench = ensureBenchMembers(state.bench);
     }
   } catch (e) {
     console.error('LoadSavedData error:', e);
@@ -570,7 +844,8 @@ function saveToHistory() {
       rotationIndex: state.rotationIndex,
       matchDate: state.matchDate || '未設定',
       matchTitle: state.matchTitle || '無題',
-      members: JSON.parse(JSON.stringify(state.members))
+      members: JSON.parse(JSON.stringify(state.members)),
+      bench: JSON.parse(JSON.stringify(state.bench))
     };
 
     history.unshift(item);
@@ -644,6 +919,7 @@ function loadHistoryItem(item) {
   state.matchDate = item.matchDate;
   state.matchTitle = item.matchTitle;
   state.members = JSON.parse(JSON.stringify(item.members));
+  state.bench = ensureBenchMembers(item.bench);
 
   elements.matchDate.value = state.matchDate;
   elements.matchTitle.value = state.matchTitle;
@@ -947,15 +1223,6 @@ function generateCourtImageBlob() {
     ctx.lineWidth = 8;
     ctx.strokeRect(courtX, courtY, courtW, courtH);
 
-    // アタックライン
-    const attackLineY = courtY + courtH * 0.333;
-    ctx.beginPath();
-    ctx.moveTo(courtX, attackLineY);
-    ctx.lineTo(courtX + courtW, attackLineY);
-    ctx.lineWidth = 6;
-    ctx.strokeStyle = '#ffffff';
-    ctx.stroke();
-
     // サーブエリアマーカー
     ctx.fillStyle = 'rgba(239, 68, 68, 0.4)';
     ctx.fillRect(courtX + courtW - 200, courtY + courtH - 50, 200, 50);
@@ -979,15 +1246,15 @@ function generateCourtImageBlob() {
 
       const px = courtX + (courtW * posCoord.left / 100);
       const py = courtY + (courtH * posCoord.top / 100);
-      const radius = 54;
+      const radius = 28;
       const isServing = (posNum === 1);
 
       if (isServing) {
         ctx.beginPath();
-        ctx.arc(px, py, radius + 12, 0, Math.PI * 2);
+        ctx.arc(px, py, radius + 8, 0, Math.PI * 2);
         ctx.fillStyle = 'rgba(251, 191, 36, 0.4)';
         ctx.fill();
-        ctx.lineWidth = 4;
+        ctx.lineWidth = 3;
         ctx.strokeStyle = '#fbbf24';
         ctx.stroke();
       }
@@ -996,30 +1263,27 @@ function generateCourtImageBlob() {
       ctx.arc(px, py, radius, 0, Math.PI * 2);
       ctx.fillStyle = member.color || '#2563eb';
       ctx.fill();
-      ctx.lineWidth = 5;
+      ctx.lineWidth = 3;
       ctx.strokeStyle = '#ffffff';
       ctx.stroke();
 
       ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 44px sans-serif';
+      ctx.font = 'bold 28px sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(`${member.number}`, px, py - 8);
-
-      ctx.font = 'bold 18px sans-serif';
-      ctx.fillText(posCoord.name.split('(')[0], px, py + 26);
+      ctx.fillText(`${member.number}`, px, py);
 
       ctx.textBaseline = 'alphabetic';
-      ctx.font = 'bold 26px sans-serif';
+      ctx.font = 'bold 50px sans-serif';
       const nameWidth = ctx.measureText(member.name).width;
-      const labelW = Math.max(nameWidth + 24, 110);
-      const labelH = 38;
+      const labelW = Math.max(nameWidth + 36, 160);
+      const labelH = 68;
       const labelX = px - labelW / 2;
-      const labelY = py + radius + 10;
+      const labelY = py + radius + 8;
 
       ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
       ctx.beginPath();
-      ctx.roundRect(labelX, labelY, labelW, labelH, 10);
+      ctx.roundRect(labelX, labelY, labelW, labelH, 12);
       ctx.fill();
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
       ctx.lineWidth = 2;
@@ -1027,11 +1291,11 @@ function generateCourtImageBlob() {
 
       ctx.fillStyle = '#ffffff';
       ctx.textAlign = 'center';
-      ctx.fillText(member.name, px, labelY + 28);
+      ctx.fillText(member.name, px, labelY + 50);
 
       if (isServing) {
-        ctx.font = '28px sans-serif';
-        ctx.fillText('🏐', px + radius - 6, py - radius + 20);
+        ctx.font = '22px sans-serif';
+        ctx.fillText('🏐', px + radius - 2, py - radius + 14);
       }
     }
 
