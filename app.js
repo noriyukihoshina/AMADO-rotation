@@ -172,14 +172,12 @@ function setupEventListeners() {
   elements.mode8Btn.addEventListener('click', () => switchMode(8));
   elements.mode9Btn.addEventListener('click', () => switchMode(9));
 
-  // 大会情報変更
+  // 大会情報変更（入力値の状態同期のみ、自動保存はしない）
   elements.matchDate.addEventListener('input', (e) => {
     state.matchDate = e.target.value;
-    autoSaveCurrent();
   });
   elements.matchTitle.addEventListener('input', (e) => {
     state.matchTitle = e.target.value;
-    autoSaveCurrent();
   });
 
   // ローテーション操作
@@ -188,7 +186,7 @@ function setupEventListeners() {
   elements.resetBtn.addEventListener('click', resetRotation);
 
   // 保存・読込・画像出力・共有
-  elements.saveBtn.addEventListener('click', handleSaveWithFilePicker);
+  elements.saveBtn.addEventListener('click', saveCurrentMatch);
   elements.historyBtn.addEventListener('click', openHistoryModal);
   elements.exportImgBtn.addEventListener('click', handleSaveWithFilePicker);
   elements.editMembersBtn.addEventListener('click', openMembersModal);
@@ -235,7 +233,6 @@ function switchMode(newMode) {
   }
   state.bench = ensureBenchMembers(state.bench);
 
-  autoSaveCurrent();
   renderCourt();
   showToast(`${newMode}人制モードに切り替えました`);
 }
@@ -244,21 +241,18 @@ function switchMode(newMode) {
 function nextRotation() {
   state.rotationIndex = (state.rotationIndex + 1) % state.mode;
   renderCourt();
-  autoSaveCurrent();
 }
 
 // ローテーション戻る
 function prevRotation() {
   state.rotationIndex = (state.rotationIndex - 1 + state.mode) % state.mode;
   renderCourt();
-  autoSaveCurrent();
 }
 
 // ローテーションリセット
 function resetRotation() {
   state.rotationIndex = 0;
   renderCourt();
-  autoSaveCurrent();
   showToast('初期ローテーションにリセットしました');
 }
 
@@ -399,7 +393,6 @@ function savePlayerModal() {
 
   closePlayerModal();
   renderCourt();
-  autoSaveCurrent();
   showToast('選手情報を更新しました');
 }
 
@@ -712,7 +705,6 @@ function saveMembersModal() {
 
   closeMembersModal();
   renderCourt();
-  autoSaveCurrent();
   showToast('メンバー一覧を更新しました');
 }
 
@@ -720,63 +712,159 @@ function saveMembersModal() {
 const STORAGE_KEY_CURRENT = 'volleyball_rot_current';
 const STORAGE_KEY_HISTORY = 'volleyball_rot_history';
 
-function autoSaveCurrent() {
+// 自動保存は全廃（互換性のため空関数として保持）
+function autoSaveCurrent() {}
+
+/**
+ * 起動時の保存データ読込
+ * 1. URLパラメータ（?d=...）があれば共有大会データを最優先でロード
+ * 2. なければローカル保存履歴（volleyball_rot_history）の最新大会をロード
+ * 3. 保存履歴がなければ初期デフォルト（8人制、長作招待）をセット
+ */
+function loadSavedData() {
   try {
-    const data = {
-      mode: state.mode,
-      rotationIndex: state.rotationIndex,
-      matchDate: state.matchDate,
-      matchTitle: state.matchTitle,
-      members: state.members,
-      bench: state.bench
-    };
-    localStorage.setItem(STORAGE_KEY_CURRENT, JSON.stringify(data));
+    // 1. URL共有パラメータがあるか確認
+    const urlParams = new URLSearchParams(window.location.search);
+    const shareParam = urlParams.get('d');
+    if (shareParam) {
+      const sharedData = decodeShareData(shareParam);
+      if (sharedData) {
+        applySharedData(sharedData);
+        showToast(`🔗 共有ローテーション「${sharedData.t || '大会'}」を開きました`);
+        return;
+      }
+    }
+
+    // 2. ローカル保存履歴の最新大会をロード
+    const raw = localStorage.getItem(STORAGE_KEY_HISTORY);
+    if (raw) {
+      const history = JSON.parse(raw);
+      if (Array.isArray(history) && history.length > 0) {
+        applyMatchData(history[0]);
+        return;
+      }
+    }
+
+    // 旧バージョンのcurrentがあれば移行確認
+    const oldCurrent = localStorage.getItem(STORAGE_KEY_CURRENT);
+    if (oldCurrent) {
+      const data = JSON.parse(oldCurrent);
+      applyMatchData(data);
+      return;
+    }
+
+    // 3. デフォルト設定（8人制、長作招待）
+    setDefaultState();
   } catch (e) {
-    console.error('AutoSave error:', e);
+    console.error('LoadSavedData error:', e);
+    setDefaultState();
   }
 }
 
-function loadSavedData() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY_CURRENT);
-    if (raw) {
-      const data = JSON.parse(raw);
-      state.mode = data.mode || 8;
-      state.rotationIndex = data.rotationIndex || 0;
-      state.matchDate = data.matchDate !== undefined ? data.matchDate : '20260216';
-      state.matchTitle = data.matchTitle !== undefined ? data.matchTitle : '長作招待';
-      state.members = data.members && data.members.length ? data.members : JSON.parse(JSON.stringify(DEFAULT_MEMBERS_8));
-      state.bench = ensureBenchMembers(data.bench);
+function setDefaultState() {
+  state.mode = 8;
+  state.rotationIndex = 0;
+  state.matchDate = '20260216';
+  state.matchTitle = '長作招待';
+  state.members = JSON.parse(JSON.stringify(DEFAULT_MEMBERS_8));
+  state.bench = ensureBenchMembers(DEFAULT_BENCH);
 
-      elements.matchDate.value = state.matchDate;
-      elements.matchTitle.value = state.matchTitle;
-      if (state.mode === 9) {
-        elements.mode9Btn.classList.add('active');
-        elements.mode8Btn.classList.remove('active');
-      } else {
-        elements.mode8Btn.classList.add('active');
-        elements.mode9Btn.classList.remove('active');
-      }
-    } else {
-      elements.matchDate.value = state.matchDate;
-      elements.matchTitle.value = state.matchTitle;
-      state.bench = ensureBenchMembers(state.bench);
-    }
-  } catch (e) {
-    console.error('LoadSavedData error:', e);
+  elements.matchDate.value = state.matchDate;
+  elements.matchTitle.value = state.matchTitle;
+  elements.mode8Btn.classList.add('active');
+  elements.mode9Btn.classList.remove('active');
+}
+
+/**
+ * 保存データオブジェクトを画面およびstateに反映
+ */
+function applyMatchData(data) {
+  state.mode = data.mode || 8;
+  state.rotationIndex = data.rotationIndex || 0;
+  state.matchDate = data.matchDate !== undefined ? data.matchDate : '';
+  state.matchTitle = data.matchTitle !== undefined ? data.matchTitle : '';
+  state.members = data.members && data.members.length ? JSON.parse(JSON.stringify(data.members)) : (state.mode === 9 ? JSON.parse(JSON.stringify(DEFAULT_MEMBERS_9)) : JSON.parse(JSON.stringify(DEFAULT_MEMBERS_8)));
+  state.bench = ensureBenchMembers(data.bench);
+
+  elements.matchDate.value = state.matchDate;
+  elements.matchTitle.value = state.matchTitle;
+
+  if (state.mode === 9) {
+    elements.mode9Btn.classList.add('active');
+    elements.mode8Btn.classList.remove('active');
+  } else {
+    elements.mode8Btn.classList.add('active');
+    elements.mode9Btn.classList.remove('active');
   }
 }
 
 /**
- * 「保存」ボタン押下時の処理：
- * 1. アプリ内localStorageに保存
- * 2. ファイル名【日付（8桁の数字）＋大会名】で保存先フォルダを指定して保存
+ * 「💾 保存」ボタン押下時の処理：
+ * ユーザーが「確定」と思った時に手動で「日付＋大会名」で保存する。
+ * 同一の「日付＋大会名」なら上書き更新、新規なら先頭に追加。
+ */
+function saveCurrentMatch() {
+  const dateStr = (elements.matchDate.value || state.matchDate || '').trim();
+  const titleStr = (elements.matchTitle.value || state.matchTitle || '').trim();
+
+  if (!dateStr || !titleStr) {
+    showToast('⚠️ 日付と大会名を入力してから「保存」を押してください');
+    if (!dateStr) elements.matchDate.focus();
+    else elements.matchTitle.focus();
+    return;
+  }
+
+  state.matchDate = dateStr;
+  state.matchTitle = titleStr;
+
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_HISTORY);
+    let history = raw ? JSON.parse(raw) : [];
+
+    const date8 = formatDateTo8Digits(dateStr);
+    const itemKey = `${date8}_${titleStr}`;
+
+    const newItem = {
+      id: itemKey,
+      savedAt: new Date().toLocaleString('ja-JP', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+      }),
+      mode: state.mode,
+      rotationIndex: state.rotationIndex,
+      matchDate: dateStr,
+      matchTitle: titleStr,
+      members: JSON.parse(JSON.stringify(state.members)),
+      bench: JSON.parse(JSON.stringify(state.bench))
+    };
+
+    // 同名（同じ日付＋大会名）があれば上書き更新、なければ先頭に追加
+    const existingIndex = history.findIndex(item => item.id === itemKey || (item.matchDate === dateStr && item.matchTitle === titleStr));
+    if (existingIndex >= 0) {
+      history.splice(existingIndex, 1);
+      history.unshift(newItem);
+    } else {
+      history.unshift(newItem);
+    }
+
+    if (history.length > 50) history.pop();
+
+    localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(history));
+    updateHistoryBadge();
+    showToast(`💾 「${dateStr} ${titleStr}」を保存しました`);
+  } catch (e) {
+    console.error('Save match error:', e);
+    showToast('保存に失敗しました');
+  }
+}
+
+/**
+ * 「📷 画像出力」ボタン押下時の処理
  */
 async function handleSaveWithFilePicker() {
-  // まずアプリ内に保存
-  saveToHistory();
-
-  // 8桁の日付を生成
   const date8 = formatDateTo8Digits(state.matchDate);
   const titleClean = (state.matchTitle || '大会名未設定').replace(/[\\/:*?"<>|]/g, '');
   const fileName = `${date8}${titleClean}.png`;
@@ -802,7 +890,6 @@ async function handleSaveWithFilePicker() {
       return;
     } catch (err) {
       if (err.name === 'AbortError') {
-        // ユーザーがキャンセルした場合はそのまま終了
         return;
       }
       console.warn('showSaveFilePicker error, fallback to download:', err);
@@ -827,35 +914,8 @@ async function handleSaveWithFilePicker() {
     }
   }
 
-  // 通常のダウンロード（ブラウザのダウンロードダイアログ / 保存先設定）
+  // 通常のダウンロード
   downloadBlob(blob, fileName);
-}
-
-// 履歴への保存（アプリ内）
-function saveToHistory() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY_HISTORY);
-    const history = raw ? JSON.parse(raw) : [];
-
-    const item = {
-      id: Date.now(),
-      savedAt: new Date().toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
-      mode: state.mode,
-      rotationIndex: state.rotationIndex,
-      matchDate: state.matchDate || '未設定',
-      matchTitle: state.matchTitle || '無題',
-      members: JSON.parse(JSON.stringify(state.members)),
-      bench: JSON.parse(JSON.stringify(state.bench))
-    };
-
-    history.unshift(item);
-    if (history.length > 30) history.pop();
-
-    localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(history));
-    updateHistoryBadge();
-  } catch (e) {
-    console.error('History save error:', e);
-  }
 }
 
 function updateHistoryBadge() {
@@ -868,7 +928,7 @@ function updateHistoryBadge() {
   }
 }
 
-// 履歴一覧モーダル
+// 保存一覧（読込）モーダル
 function openHistoryModal() {
   const raw = localStorage.getItem(STORAGE_KEY_HISTORY);
   const history = raw ? JSON.parse(raw) : [];
@@ -876,24 +936,32 @@ function openHistoryModal() {
   elements.historyList.innerHTML = '';
 
   if (history.length === 0) {
-    elements.historyList.innerHTML = '<div class="history-empty">保存されたローテーションはありません。<br>「💾 保存」ボタンで保存できます。</div>';
+    elements.historyList.innerHTML = '<div class="history-empty">保存されたローテーションはありません。<br>日付と大会名を入力し「💾 保存」を押すと保存されます。</div>';
   } else {
     history.forEach(item => {
       const el = document.createElement('div');
       el.className = 'history-item';
 
-      const memberNames = (item.members || []).map(m => m.name).join(' / ');
+      const memberNames = (item.members || []).map(m => m.name).filter(Boolean).join(' / ');
 
       el.innerHTML = `
         <div class="history-info">
           <div class="history-title">【${item.mode}人制】${escapeHtml(item.matchDate)} ${escapeHtml(item.matchTitle)} (Rot ${item.rotationIndex + 1})</div>
           <div class="history-date">保存日時: ${item.savedAt}</div>
-          <div class="history-members">${escapeHtml(memberNames)}</div>
+          <div class="history-members">${escapeHtml(memberNames || 'メンバー設定あり')}</div>
         </div>
-        <button class="history-delete-btn" title="削除">削除</button>
+        <div class="history-actions">
+          <button class="history-load-btn" title="この大会のローテーションを呼び出す">呼出</button>
+          <button class="history-delete-btn" title="削除">削除</button>
+        </div>
       `;
 
       el.querySelector('.history-info').addEventListener('click', () => {
+        loadHistoryItem(item);
+      });
+
+      el.querySelector('.history-load-btn').addEventListener('click', (e) => {
+        e.stopPropagation();
         loadHistoryItem(item);
       });
 
@@ -914,28 +982,10 @@ function closeHistoryModal() {
 }
 
 function loadHistoryItem(item) {
-  state.mode = item.mode;
-  state.rotationIndex = item.rotationIndex;
-  state.matchDate = item.matchDate;
-  state.matchTitle = item.matchTitle;
-  state.members = JSON.parse(JSON.stringify(item.members));
-  state.bench = ensureBenchMembers(item.bench);
-
-  elements.matchDate.value = state.matchDate;
-  elements.matchTitle.value = state.matchTitle;
-
-  if (state.mode === 9) {
-    elements.mode9Btn.classList.add('active');
-    elements.mode8Btn.classList.remove('active');
-  } else {
-    elements.mode8Btn.classList.add('active');
-    elements.mode9Btn.classList.remove('active');
-  }
-
+  applyMatchData(item);
   closeHistoryModal();
   renderCourt();
-  autoSaveCurrent();
-  showToast(`「${item.matchTitle}」のローテーションを読み込みました`);
+  showToast(`📂 「${item.matchTitle}」のローテーションを呼び出しました`);
 }
 
 function deleteHistoryItem(id) {
@@ -950,19 +1000,125 @@ function deleteHistoryItem(id) {
 }
 
 /**
- * 共有URL・QRコードモーダルを開く
+ * 現在表示中の大会ローテーションデータのみを抽出（他大会のデータは含めない）
  */
-function openShareModal() {
-  // Vercel本番公開URLを優先表示
-  let targetUrl = PRODUCTION_URL;
-  if (!targetUrl || window.location.href.includes('vercel.app')) {
-    targetUrl = window.location.href;
+function createShareData() {
+  return {
+    v: 1,
+    m: state.mode,
+    r: state.rotationIndex,
+    d: state.matchDate || '',
+    t: state.matchTitle || '',
+    p: state.members.map(m => ({ n: m.name || '', num: m.number, c: m.color || '#2563eb' })),
+    b: state.bench.map(m => ({ n: m.name || '', num: m.number, c: m.color || '#2563eb' }))
+  };
+}
+
+/**
+ * 共有データをURL-Safe Base64にエンコード
+ */
+function encodeShareData(data) {
+  try {
+    const json = JSON.stringify(data);
+    const utf8Bytes = new TextEncoder().encode(json);
+    let binary = '';
+    for (let i = 0; i < utf8Bytes.length; i++) {
+      binary += String.fromCharCode(utf8Bytes[i]);
+    }
+    const base64 = btoa(binary);
+    return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  } catch (e) {
+    console.error('Encode share data error:', e);
+    return '';
+  }
+}
+
+/**
+ * URL-Safe Base64文字列から大会データを復元
+ */
+function decodeShareData(str) {
+  try {
+    let base64 = str.replace(/-/g, '+').replace(/_/g, '/');
+    while (base64.length % 4) {
+      base64 += '=';
+    }
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    const json = new TextDecoder().decode(bytes);
+    return JSON.parse(json);
+  } catch (e) {
+    console.error('Decode share data error:', e);
+    return null;
+  }
+}
+
+/**
+ * 共有データを受信側アプリに適用
+ */
+function applySharedData(data) {
+  state.mode = data.m || 8;
+  state.rotationIndex = data.r || 0;
+  state.matchDate = data.d || '';
+  state.matchTitle = data.t || '';
+
+  if (Array.isArray(data.p) && data.p.length) {
+    state.members = data.p.map((p, idx) => ({
+      id: idx + 1,
+      number: p.num !== undefined ? p.num : (idx + 1),
+      name: p.n || '',
+      role: '',
+      color: p.c || '#2563eb'
+    }));
+  } else {
+    state.members = state.mode === 9 ? JSON.parse(JSON.stringify(DEFAULT_MEMBERS_9)) : JSON.parse(JSON.stringify(DEFAULT_MEMBERS_8));
   }
 
-  elements.shareUrlInput.value = targetUrl;
+  if (Array.isArray(data.b)) {
+    state.bench = ensureBenchMembers(data.b.map((b, idx) => ({
+      id: `bench-${idx + 1}`,
+      number: b.num !== undefined ? b.num : (10 + idx),
+      name: b.n || '',
+      role: '控え',
+      color: b.c || '#2563eb'
+    })));
+  } else {
+    state.bench = ensureBenchMembers(DEFAULT_BENCH);
+  }
 
-  // QRコードの生成・描画
-  generateQrCode(targetUrl, elements.qrCodeWrapper);
+  elements.matchDate.value = state.matchDate;
+  elements.matchTitle.value = state.matchTitle;
+
+  if (state.mode === 9) {
+    elements.mode9Btn.classList.add('active');
+    elements.mode8Btn.classList.remove('active');
+  } else {
+    elements.mode8Btn.classList.add('active');
+    elements.mode9Btn.classList.remove('active');
+  }
+}
+
+/**
+ * 共有URL・QRコードモーダルを開く
+ * 現在の大会データのみをURLに埋め込み、他者のスマホに共有可能にする
+ */
+function openShareModal() {
+  const shareData = createShareData();
+  const encoded = encodeShareData(shareData);
+
+  // 本番公開URLまたは現在のホストURL
+  let baseUrl = PRODUCTION_URL;
+  if (window.location.hostname && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+    baseUrl = `${window.location.origin}${window.location.pathname}`;
+  }
+
+  const fullShareUrl = `${baseUrl}?d=${encoded}`;
+  elements.shareUrlInput.value = fullShareUrl;
+
+  // 高精度QRコードの生成・描画
+  generateQrCode(fullShareUrl, elements.qrCodeWrapper);
 
   elements.shareModal.style.display = 'flex';
 }
@@ -976,7 +1132,7 @@ function copyShareUrl() {
   elements.shareUrlInput.setSelectionRange(0, 99999);
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(elements.shareUrlInput.value)
-      .then(() => showToast('URLをクリップボードにコピーしました！'))
+      .then(() => showToast('共有URLをコピーしました！'))
       .catch(() => fallbackCopy());
   } else {
     fallbackCopy();
@@ -985,44 +1141,309 @@ function copyShareUrl() {
 
 function fallbackCopy() {
   document.execCommand('copy');
-  showToast('URLをコピーしました！');
+  showToast('共有URLをコピーしました！');
 }
 
 /**
- * 外部ライブラリ非依存の軽量QRコードジェネレータ (SVG)
- * URL文字列をSVGのQRコードとして描画
+ * 外部ライブラリ非依存の標準準拠QRコードジェネレータ (SVG)
  */
 function generateQrCode(text, container) {
   container.innerHTML = '';
-  // QRコード簡易描画エンジン（21x21〜33x33マトリクス）
-  const svg = createQrSvg(text, 180);
-  container.appendChild(svg);
+  try {
+    const svg = createQrSvg(text, 180);
+    container.appendChild(svg);
+  } catch (err) {
+    console.error('QR code generation failed:', err);
+    container.innerHTML = '<span style="font-size:0.75rem;color:#ef4444;">QRコードの生成に失敗しました</span>';
+  }
 }
 
-// 簡易QR描画（Reed-Solomon/標準QRマトリクス生成）
-function createQrSvg(data, size) {
-  // 外部依存なしで確実・高速に描画するSVGジェネレータ
-  const modules = encodeQrMatrix(data);
-  const count = modules.length;
-  const cellSize = size / count;
+// Galois Field GF(256) 演算テーブル
+const QR_GF_EXP = new Uint8Array(512);
+const QR_GF_LOG = new Uint8Array(256);
+(function initQrGf() {
+  let val = 1;
+  for (let i = 0; i < 255; i++) {
+    QR_GF_EXP[i] = val;
+    QR_GF_EXP[i + 255] = val;
+    QR_GF_LOG[val] = i;
+    val = (val << 1) ^ (val & 0x80 ? 0x11d : 0);
+  }
+})();
 
+function qrGfMul(x, y) {
+  if (x === 0 || y === 0) return 0;
+  return QR_GF_EXP[QR_GF_LOG[x] + QR_GF_LOG[y]];
+}
+
+function qrRsGenPoly(n) {
+  let poly = [1];
+  for (let i = 0; i < n; i++) {
+    const next = new Array(poly.length + 1).fill(0);
+    const root = QR_GF_EXP[i];
+    for (let j = 0; j < poly.length; j++) {
+      next[j] ^= qrGfMul(poly[j], root);
+      next[j + 1] ^= poly[j];
+    }
+    poly = next;
+  }
+  return poly;
+}
+
+function qrRsEncode(data, ecCount) {
+  const poly = qrRsGenPoly(ecCount);
+  const res = new Uint8Array(ecCount);
+  for (let i = 0; i < data.length; i++) {
+    const m = data[i] ^ res[0];
+    res.copyWithin(0, 1);
+    res[ecCount - 1] = 0;
+    for (let j = 0; j < ecCount; j++) {
+      res[j] ^= qrGfMul(poly[j], m);
+    }
+  }
+  return res;
+}
+
+// QRコード仕様テーブル (Version 1〜12, Level M)
+// 各バージョンの [総コード語数, ECコード語数/ブロック, ブロック数, アライメント座標リスト]
+const QR_VERSIONS = [
+  null,
+  { total: 26, ec: 10, b1: 1, b2: 0, align: [] },
+  { total: 44, ec: 16, b1: 1, b2: 0, align: [6, 18] },
+  { total: 70, ec: 26, b1: 1, b2: 0, align: [6, 22] },
+  { total: 100, ec: 18, b1: 2, b2: 0, align: [6, 26] },
+  { total: 134, ec: 24, b1: 2, b2: 0, align: [6, 30] },
+  { total: 172, ec: 16, b1: 4, b2: 0, align: [6, 34] },
+  { total: 196, ec: 18, b1: 4, b2: 0, align: [6, 22, 38] },
+  { total: 242, ec: 22, b1: 2, b2: 2, align: [6, 24, 42] },
+  { total: 292, ec: 22, b1: 3, b2: 2, align: [6, 26, 46] },
+  { total: 346, ec: 26, b1: 4, b2: 1, align: [6, 28, 50] },
+  { total: 404, ec: 30, b1: 1, b2: 4, align: [6, 30, 54] },
+  { total: 466, ec: 22, b1: 6, b2: 2, align: [6, 32, 58] }
+];
+
+/**
+ * 標準QRコードマトリクスを生成
+ */
+function createQrSvg(text, size) {
+  const utf8 = new TextEncoder().encode(text);
+  const dataLen = utf8.length;
+
+  // 適切なバージョンを決定
+  let ver = 1;
+  while (ver <= 12) {
+    const vinfo = QR_VERSIONS[ver];
+    const totalBlocks = vinfo.b1 + vinfo.b2;
+    const totalEc = totalBlocks * vinfo.ec;
+    const maxDataBytes = vinfo.total - totalEc;
+    const headerBits = 4 + (ver <= 9 ? 8 : 16);
+    const availableDataBytes = Math.floor((maxDataBytes * 8 - headerBits) / 8);
+    if (dataLen <= availableDataBytes) break;
+    ver++;
+  }
+  if (ver > 12) ver = 12;
+
+  const vinfo = QR_VERSIONS[ver];
+  const totalBlocks = vinfo.b1 + vinfo.b2;
+  const totalEc = totalBlocks * vinfo.ec;
+  const totalDataBytes = vinfo.total - totalEc;
+
+  // ビットバッファ構築 (Byte Mode: 0100)
+  const bitBuf = [];
+  function pushBits(val, len) {
+    for (let i = len - 1; i >= 0; i--) {
+      bitBuf.push((val >> i) & 1);
+    }
+  }
+
+  pushBits(0b0100, 4); // Byte mode indicator
+  pushBits(dataLen, ver <= 9 ? 8 : 16); // Character count indicator
+  for (let i = 0; i < dataLen; i++) {
+    pushBits(utf8[i], 8);
+  }
+
+  // 終端パターン (最大4ビット)
+  const maxBits = totalDataBytes * 8;
+  const termLen = Math.min(4, maxBits - bitBuf.length);
+  for (let i = 0; i < termLen; i++) bitBuf.push(0);
+
+  // 8ビット境界パディング
+  while (bitBuf.length % 8 !== 0) bitBuf.push(0);
+
+  // データコード語へ変換
+  const dataWords = [];
+  for (let i = 0; i < bitBuf.length; i += 8) {
+    let b = 0;
+    for (let j = 0; j < 8; j++) {
+      b = (b << 1) | bitBuf[i + j];
+    }
+    dataWords.push(b);
+  }
+
+  // パディングコード語 (0xEC, 0x11)
+  const padPatterns = [0xec, 0x11];
+  let padIdx = 0;
+  while (dataWords.length < totalDataBytes) {
+    dataWords.push(padPatterns[padIdx % 2]);
+    padIdx++;
+  }
+
+  // ブロック分割と誤り訂正コード生成
+  const shortLen = Math.floor(totalDataBytes / totalBlocks);
+  const blocks = [];
+  let dOffset = 0;
+  for (let i = 0; i < totalBlocks; i++) {
+    const bLen = (i < totalBlocks - vinfo.b2) ? shortLen : (shortLen + 1);
+    const dBlock = dataWords.slice(dOffset, dOffset + bLen);
+    dOffset += bLen;
+    const ecBlock = qrRsEncode(dBlock, vinfo.ec);
+    blocks.push({ data: dBlock, ec: ecBlock });
+  }
+
+  // インターリーブ
+  const finalWords = [];
+  const maxBlockLen = Math.max(...blocks.map(b => b.data.length));
+  for (let i = 0; i < maxBlockLen; i++) {
+    for (let b = 0; b < totalBlocks; b++) {
+      if (i < blocks[b].data.length) finalWords.push(blocks[b].data[i]);
+    }
+  }
+  for (let i = 0; i < vinfo.ec; i++) {
+    for (let b = 0; b < totalBlocks; b++) {
+      finalWords.push(blocks[b].ec[i]);
+    }
+  }
+
+  // マトリクス構築 (サイズ N)
+  const N = 17 + 4 * ver;
+  const matrix = Array.from({ length: N }, () => Array(N).fill(false));
+  const isFunc = Array.from({ length: N }, () => Array(N).fill(false));
+
+  function setFunc(r, c, v) {
+    if (r >= 0 && r < N && c >= 0 && c < N) {
+      matrix[r][c] = !!v;
+      isFunc[r][c] = true;
+    }
+  }
+
+  // ファインダーパターン
+  function placeFinder(row, col) {
+    for (let r = -1; r <= 7; r++) {
+      for (let c = -1; c <= 7; c++) {
+        const nr = row + r, nc = col + c;
+        if (nr < 0 || nr >= N || nc < 0 || nc >= N) continue;
+        if (r >= 0 && r <= 6 && c >= 0 && c <= 6) {
+          const isBlack = (r === 0 || r === 6 || c === 0 || c === 6 || (r >= 2 && r <= 4 && c >= 2 && c <= 4));
+          setFunc(nr, nc, isBlack);
+        } else {
+          setFunc(nr, nc, false); // セパレータ
+        }
+      }
+    }
+  }
+
+  placeFinder(0, 0);
+  placeFinder(0, N - 7);
+  placeFinder(N - 7, 0);
+
+  // タイミングパターン
+  for (let i = 8; i < N - 8; i++) {
+    setFunc(6, i, i % 2 === 0);
+    setFunc(i, 6, i % 2 === 0);
+  }
+
+  // アライメントパターン
+  const coords = vinfo.align;
+  for (let i = 0; i < coords.length; i++) {
+    for (let j = 0; j < coords.length; j++) {
+      const ar = coords[i], ac = coords[j];
+      if (isFunc[ar][ac]) continue;
+      for (let r = -2; r <= 2; r++) {
+        for (let c = -2; c <= 2; c++) {
+          const isBlack = (Math.abs(r) === 2 || Math.abs(c) === 2 || (r === 0 && c === 0));
+          setFunc(ar + r, ac + c, isBlack);
+        }
+      }
+    }
+  }
+
+  // ダークモジュール
+  setFunc(4 * ver + 9, 8, true);
+
+  // フォーマット予約エリア
+  for (let i = 0; i < 9; i++) {
+    if (!isFunc[8][i]) isFunc[8][i] = true;
+    if (!isFunc[i][8]) isFunc[i][8] = true;
+  }
+  for (let i = 0; i < 8; i++) {
+    if (!isFunc[8][N - 1 - i]) isFunc[8][N - 1 - i] = true;
+    if (!isFunc[N - 1 - i][8]) isFunc[N - 1 - i] = true;
+  }
+
+  // データビットの配置 (ジグザグ走査)
+  let bitPointer = 0;
+  const totalBits = finalWords.length * 8;
+  let dir = -1;
+  let col = N - 1;
+
+  while (col > 0) {
+    if (col === 6) col--;
+    for (let r = 0; r < N; r++) {
+      const row = dir === -1 ? (N - 1 - r) : r;
+      for (let c = 0; c < 2; c++) {
+        const currCol = col - c;
+        if (!isFunc[row][currCol]) {
+          let bit = false;
+          if (bitPointer < totalBits) {
+            const byteIdx = Math.floor(bitPointer / 8);
+            const bitOffset = 7 - (bitPointer % 8);
+            bit = ((finalWords[byteIdx] >> bitOffset) & 1) === 1;
+            bitPointer++;
+          }
+          // マスクパターン 0: (row + col) % 2 === 0
+          if ((row + currCol) % 2 === 0) {
+            bit = !bit;
+          }
+          matrix[row][currCol] = bit;
+        }
+      }
+    }
+    dir = -dir;
+    col -= 2;
+  }
+
+  // フォーマット情報 (Level M = 00, Mask 0 = 000 -> 00000 -> BCH format = 0x5412)
+  // 15ビット形式情報: 0x5412 ^ 0x5412 = 0
+  // Level M, Mask 0 の既定値: 0b101010000010010 (15 bits)
+  const formatBits = [1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0];
+
+  // フォーマット情報の書き込み
+  for (let i = 0; i < 6; i++) matrix[8][i] = formatBits[i] === 1;
+  matrix[8][7] = formatBits[6] === 1;
+  matrix[8][8] = formatBits[7] === 1;
+  matrix[7][8] = formatBits[8] === 1;
+  for (let i = 0; i < 6; i++) matrix[5 - i][8] = formatBits[9 + i] === 1;
+
+  for (let i = 0; i < 7; i++) matrix[N - 1 - i][8] = formatBits[i] === 1;
+  for (let i = 0; i < 8; i++) matrix[8][N - 8 + i] = formatBits[7 + i] === 1;
+
+  // SVGを生成
+  const cellSize = size / N;
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('viewBox', `0 0 ${size} ${size}`);
   svg.setAttribute('width', size);
   svg.setAttribute('height', size);
 
-  // 背景
   const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
   bg.setAttribute('width', size);
   bg.setAttribute('height', size);
   bg.setAttribute('fill', '#ffffff');
   svg.appendChild(bg);
 
-  // モジュール描画
   let pathD = '';
-  for (let r = 0; r < count; r++) {
-    for (let c = 0; c < count; c++) {
-      if (modules[r][c]) {
+  for (let r = 0; r < N; r++) {
+    for (let c = 0; c < N; c++) {
+      if (matrix[r][c]) {
         const x = c * cellSize;
         const y = r * cellSize;
         pathD += `M${x},${y}h${cellSize}v${cellSize}h-${cellSize}z `;
@@ -1036,107 +1457,6 @@ function createQrSvg(data, size) {
   svg.appendChild(path);
 
   return svg;
-}
-
-/**
- * QRコードマトリクス生成ロジック（英数/URL対応）
- */
-function encodeQrMatrix(text) {
-  // 標準的なURLエンコードに対応するVersion 3 (29x29) マトリクス
-  const N = 29;
-  const matrix = Array.from({ length: N }, () => Array(N).fill(false));
-  const isFunction = Array.from({ length: N }, () => Array(N).fill(false));
-
-  function setFinder(row, col) {
-    for (let r = -1; r <= 7; r++) {
-      for (let c = -1; c <= 7; c++) {
-        const nr = row + r;
-        const nc = col + c;
-        if (nr >= 0 && nr < N && nc >= 0 && nc < N) {
-          isFunction[nr][nc] = true;
-          if ((r >= 0 && r <= 6 && (c === 0 || c === 6)) ||
-              (c >= 0 && c <= 6 && (r === 0 || r === 6)) ||
-              (r >= 2 && r <= 4 && c >= 2 && c <= 4)) {
-            matrix[nr][nc] = true;
-          } else {
-            matrix[nr][nc] = false;
-          }
-        }
-      }
-    }
-  }
-
-  // 位置検出パターン (Finder patterns)
-  setFinder(0, 0);
-  setFinder(0, N - 7);
-  setFinder(N - 7, 0);
-
-  // タイミングパターン
-  for (let i = 8; i < N - 8; i++) {
-    isFunction[6][i] = true;
-    matrix[6][i] = (i % 2 === 0);
-    isFunction[i][6] = true;
-    matrix[i][6] = (i % 2 === 0);
-  }
-
-  // アライメントパターン (Version 3: row 22, col 22)
-  const alignR = 22, alignC = 22;
-  for (let r = -2; r <= 2; r++) {
-    for (let c = -2; c <= 2; c++) {
-      isFunction[alignR + r][alignC + c] = true;
-      if (Math.abs(r) === 2 || Math.abs(c) === 2 || (r === 0 && c === 0)) {
-        matrix[alignR + r][alignC + c] = true;
-      } else {
-        matrix[alignR + r][alignC + c] = false;
-      }
-    }
-  }
-
-  // ダークモジュール
-  isFunction[4 * 3 + 9][8] = true;
-  matrix[4 * 3 + 9][8] = true;
-
-  // データビットの生成（ハッシュ・ビット分散）
-  const charBytes = [];
-  for (let i = 0; i < text.length; i++) {
-    charBytes.push(text.charCodeAt(i));
-  }
-
-  let bitIdx = 0;
-  let byteIdx = 0;
-  let dir = -1; // 上向き
-  let col = N - 1;
-
-  while (col > 0) {
-    if (col === 6) col--; // タイミング列をスキップ
-    for (let r = 0; r < N; r++) {
-      const row = dir === -1 ? (N - 1 - r) : r;
-      for (let c = 0; c < 2; c++) {
-        const currCol = col - c;
-        if (!isFunction[row][currCol]) {
-          let bit = false;
-          if (byteIdx < charBytes.length) {
-            bit = ((charBytes[byteIdx] >> (7 - (bitIdx % 8))) & 1) === 1;
-            bitIdx++;
-            if (bitIdx % 8 === 0) byteIdx++;
-          } else {
-            // パディングパターン
-            bit = ((row + currCol) % 2 === 0) ^ ((bitIdx * 7) % 3 === 0);
-            bitIdx++;
-          }
-          // マスク 0 ( (row + col) % 2 == 0 )
-          if ((row + currCol) % 2 === 0) {
-            bit = !bit;
-          }
-          matrix[row][currCol] = bit;
-        }
-      }
-    }
-    dir = -dir;
-    col -= 2;
-  }
-
-  return matrix;
 }
 
 /**
