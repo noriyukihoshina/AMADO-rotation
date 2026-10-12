@@ -675,6 +675,13 @@ body {
   border-top: 1px dashed rgba(255, 255, 255, 0.2);
 }
 
+.members-section-label.absent-label {
+  color: #cbd5e1;
+  margin-top: 16px;
+  padding-top: 10px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.2);
+}
+
 .member-edit-row {
   display: flex;
   align-items: center;
@@ -691,6 +698,11 @@ body {
 .member-edit-row.bench-row {
   background: rgba(245, 158, 11, 0.08);
   border-color: rgba(245, 158, 11, 0.2);
+}
+
+.member-edit-row.absent-row {
+  background: rgba(100, 116, 139, 0.12);
+  border-color: rgba(148, 163, 184, 0.2);
 }
 
 .member-edit-row.is-dragging {
@@ -734,8 +746,9 @@ body {
   flex-shrink: 0;
 }
 
-.member-idx.bench-idx {
-  color: transparent; /* 控えメンバーは番号なし（位置揃えのため幅を保持） */
+.member-idx.bench-idx,
+.member-idx.absent-idx {
+  color: transparent; /* 控え・欠席メンバーは番号なし（位置揃えのため幅を保持） */
 }
 
 /* 背番号入力 */

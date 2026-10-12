@@ -95,6 +95,30 @@ function ensureBenchMembers(benchList) {
   return result.slice(0, 5);
 }
 
+// 欠席メンバー（20名枠）のデフォルト定義
+const DEFAULT_ABSENT = Array.from({ length: 20 }, (_, i) => ({
+  id: `absent-${i + 1}`,
+  number: '',
+  name: '',
+  role: '欠席',
+  color: '#2563eb'
+}));
+
+function ensureAbsentMembers(absentList) {
+  const result = Array.isArray(absentList) ? JSON.parse(JSON.stringify(absentList)) : [];
+  while (result.length < 20) {
+    const nextIdx = result.length + 1;
+    result.push({
+      id: `absent-${Date.now()}-${nextIdx}`,
+      number: '',
+      name: '',
+      role: '欠席',
+      color: '#2563eb'
+    });
+  }
+  return result.slice(0, 20);
+}
+
 // 本番公開URL (Vercel)
 const PRODUCTION_URL = 'https://amado-rotation.vercel.app';
 
@@ -106,6 +130,7 @@ const state = {
   matchTitle: '長作招待',
   members: JSON.parse(JSON.stringify(DEFAULT_MEMBERS_8)),
   bench: JSON.parse(JSON.stringify(DEFAULT_BENCH)),
+  absent: JSON.parse(JSON.stringify(DEFAULT_ABSENT)),
   editingMemberId: null
 };
 
@@ -232,6 +257,7 @@ function switchMode(newMode) {
     state.members = JSON.parse(JSON.stringify(DEFAULT_MEMBERS_9));
   }
   state.bench = ensureBenchMembers(state.bench);
+  state.absent = ensureAbsentMembers(state.absent);
 
   renderCourt();
   showToast(`${newMode}人制モードに切り替えました`);
@@ -429,11 +455,13 @@ let dragSourceIdx = null;
 // メンバー一括編集モーダルを開く
 function openMembersModal() {
   state.bench = ensureBenchMembers(state.bench);
+  state.absent = ensureAbsentMembers(state.absent);
 
-  // 出場メンバー (mode名) + 控えメンバー (5名) をディープコピーして結合
+  // 出場メンバー (mode名) + 控えメンバー (5名) + 欠席メンバー (20名) を結合
   modalWorkingList = [
     ...JSON.parse(JSON.stringify(state.members)),
-    ...JSON.parse(JSON.stringify(state.bench))
+    ...JSON.parse(JSON.stringify(state.bench)),
+    ...JSON.parse(JSON.stringify(state.absent))
   ];
 
   renderMembersEditList();
@@ -457,7 +485,7 @@ function renderMembersEditList() {
   elements.membersEditList.appendChild(activeLabel);
 
   modalWorkingList.forEach((m, idx) => {
-    // 控えメンバー（10番目以降/9人制なら10番目〜、8人制なら9番目〜）の直前に控えラベル
+    // 控えメンバー（8人制なら9番目〜、9人制なら10番目〜）の直前に控えラベル
     if (idx === state.mode) {
       const benchLabel = document.createElement('div');
       benchLabel.className = 'members-section-label bench-label';
@@ -465,20 +493,32 @@ function renderMembersEditList() {
       elements.membersEditList.appendChild(benchLabel);
     }
 
-    const isBench = (idx >= state.mode);
+    // 欠席メンバー（控えの直後）の直前に欠席ラベル
+    if (idx === state.mode + 5) {
+      const absentLabel = document.createElement('div');
+      absentLabel.className = 'members-section-label absent-label';
+      absentLabel.textContent = '🏠 欠席メンバー (20名)';
+      elements.membersEditList.appendChild(absentLabel);
+    }
+
+    const isBench = (idx >= state.mode && idx < state.mode + 5);
+    const isAbsent = (idx >= state.mode + 5);
     const row = document.createElement('div');
-    row.className = `member-edit-row ${isBench ? 'bench-row' : ''}`;
+    row.className = `member-edit-row ${isBench ? 'bench-row' : ''} ${isAbsent ? 'absent-row' : ''}`;
     row.setAttribute('data-idx', idx);
     row.draggable = true;
 
-    // 通し番号（出場メンバーは1〜8/9、控えメンバーは空欄＝番号なし）
-    const idxText = isBench ? '' : `${idx + 1}`;
+    // 通し番号（出場メンバーは1〜8/9、控え・欠席メンバーは番号なし）
+    const idxText = (!isBench && !isAbsent) ? `${idx + 1}` : '';
+    let placeholderText = '選手名';
+    if (isBench) placeholderText = '控え選手名';
+    if (isAbsent) placeholderText = `欠席選手名`;
 
     row.innerHTML = `
       <div class="drag-handle" title="ドラッグして並び替え・入替">☰</div>
-      <span class="member-idx ${isBench ? 'bench-idx' : ''}">${idxText}</span>
-      <input type="number" class="edit-num" value="${m.number !== undefined ? m.number : ''}" min="1" max="99" placeholder="背番" title="背番号">
-      <input type="text" class="edit-name" value="${escapeHtml(m.name || '')}" maxlength="10" placeholder="${isBench ? '控え選手名' : '選手名'}">
+      <span class="member-idx ${isBench ? 'bench-idx' : ''} ${isAbsent ? 'absent-idx' : ''}">${idxText}</span>
+      <input type="number" class="edit-num" value="${m.number !== undefined && m.number !== null ? m.number : ''}" min="1" max="99" placeholder="背番" title="背番号">
+      <input type="text" class="edit-name" value="${escapeHtml(m.name || '')}" maxlength="10" placeholder="${placeholderText}">
       <button type="button" class="edit-color-btn" style="background-color: ${m.color || '#2563eb'};" title="カラー変更"></button>
     `;
 
@@ -703,6 +743,18 @@ function saveMembersModal() {
     color: m.color || '#2563eb'
   }));
 
+  // 欠席メンバー (20名)
+  state.absent = modalWorkingList.slice(state.mode + 5, state.mode + 25).map((m, i) => ({
+    id: m.id || `absent-${i + 1}`,
+    number: m.number !== '' && !isNaN(m.number) ? parseInt(m.number, 10) : '',
+    name: m.name ? m.name.trim() : '',
+    role: '欠席',
+    color: m.color || '#2563eb'
+  }));
+
+  // 不足分があれば20枠まで確保
+  state.absent = ensureAbsentMembers(state.absent);
+
   closeMembersModal();
   renderCourt();
   showToast('メンバー一覧を更新しました');
@@ -768,6 +820,7 @@ function setDefaultState() {
   state.matchTitle = '長作招待';
   state.members = JSON.parse(JSON.stringify(DEFAULT_MEMBERS_8));
   state.bench = ensureBenchMembers(DEFAULT_BENCH);
+  state.absent = ensureAbsentMembers(DEFAULT_ABSENT);
 
   elements.matchDate.value = state.matchDate;
   elements.matchTitle.value = state.matchTitle;
@@ -785,6 +838,7 @@ function applyMatchData(data) {
   state.matchTitle = data.matchTitle !== undefined ? data.matchTitle : '';
   state.members = data.members && data.members.length ? JSON.parse(JSON.stringify(data.members)) : (state.mode === 9 ? JSON.parse(JSON.stringify(DEFAULT_MEMBERS_9)) : JSON.parse(JSON.stringify(DEFAULT_MEMBERS_8)));
   state.bench = ensureBenchMembers(data.bench);
+  state.absent = ensureAbsentMembers(data.absent);
 
   elements.matchDate.value = state.matchDate;
   elements.matchTitle.value = state.matchTitle;
@@ -838,7 +892,8 @@ function saveCurrentMatch() {
       matchDate: dateStr,
       matchTitle: titleStr,
       members: JSON.parse(JSON.stringify(state.members)),
-      bench: JSON.parse(JSON.stringify(state.bench))
+      bench: JSON.parse(JSON.stringify(state.bench)),
+      absent: JSON.parse(JSON.stringify(state.absent))
     };
 
     // 同名（同じ日付＋大会名）があれば上書き更新、なければ先頭に追加
@@ -1003,6 +1058,22 @@ function deleteHistoryItem(id) {
  * 現在表示中の大会ローテーションデータのみを抽出（他大会のデータは含めない）
  */
 function createShareData() {
+  // 欠席メンバー（末尾の完全空枠をトリミングしてURLサイズを節約）
+  let lastNonEmpty = -1;
+  const absentList = Array.isArray(state.absent) ? state.absent : [];
+  for (let i = absentList.length - 1; i >= 0; i--) {
+    const item = absentList[i];
+    if (item && ((item.name && item.name.trim()) || (item.number !== '' && item.number !== null && item.number !== undefined))) {
+      lastNonEmpty = i;
+      break;
+    }
+  }
+  const shareAbsent = (lastNonEmpty >= 0 ? absentList.slice(0, lastNonEmpty + 1) : []).map(m => ({
+    n: m.name || '',
+    num: m.number !== undefined && m.number !== null ? m.number : '',
+    c: m.color || '#2563eb'
+  }));
+
   return {
     v: 1,
     m: state.mode,
@@ -1010,7 +1081,8 @@ function createShareData() {
     d: state.matchDate || '',
     t: state.matchTitle || '',
     p: state.members.map(m => ({ n: m.name || '', num: m.number, c: m.color || '#2563eb' })),
-    b: state.bench.map(m => ({ n: m.name || '', num: m.number, c: m.color || '#2563eb' }))
+    b: state.bench.map(m => ({ n: m.name || '', num: m.number, c: m.color || '#2563eb' })),
+    a: shareAbsent
   };
 }
 
@@ -1086,6 +1158,18 @@ function applySharedData(data) {
     })));
   } else {
     state.bench = ensureBenchMembers(DEFAULT_BENCH);
+  }
+
+  if (Array.isArray(data.a)) {
+    state.absent = ensureAbsentMembers(data.a.map((a, idx) => ({
+      id: `absent-${idx + 1}`,
+      number: a.num !== undefined ? a.num : '',
+      name: a.n || '',
+      role: '欠席',
+      color: a.c || '#2563eb'
+    })));
+  } else {
+    state.absent = ensureAbsentMembers(DEFAULT_ABSENT);
   }
 
   elements.matchDate.value = state.matchDate;
