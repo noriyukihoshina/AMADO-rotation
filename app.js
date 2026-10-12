@@ -517,17 +517,9 @@ function renderMembersEditList() {
     row.innerHTML = `
       <div class="drag-handle" title="ドラッグして並び替え・入替">☰</div>
       <span class="member-idx ${isBench ? 'bench-idx' : ''} ${isAbsent ? 'absent-idx' : ''}">${idxText}</span>
-      <input type="number" class="edit-num" value="${m.number !== undefined && m.number !== null ? m.number : ''}" min="1" max="99" placeholder="背番" title="背番号">
       <input type="text" class="edit-name" value="${escapeHtml(m.name || '')}" maxlength="10" placeholder="${placeholderText}">
       <button type="button" class="edit-color-btn" style="background-color: ${m.color || '#2563eb'};" title="カラー変更"></button>
     `;
-
-    // 入力値変更時に即座に modalWorkingList に同期
-    const numInput = row.querySelector('.edit-num');
-    numInput.addEventListener('input', (e) => {
-      const val = parseInt(e.target.value, 10);
-      modalWorkingList[idx].number = isNaN(val) ? '' : val;
-    });
 
     const nameInput = row.querySelector('.edit-name');
     nameInput.addEventListener('input', (e) => {
@@ -554,12 +546,7 @@ function syncWorkingListFromInputs() {
   rows.forEach((row) => {
     const idx = parseInt(row.getAttribute('data-idx'), 10);
     if (!isNaN(idx) && modalWorkingList[idx]) {
-      const numInput = row.querySelector('.edit-num');
       const nameInput = row.querySelector('.edit-name');
-      if (numInput) {
-        const val = parseInt(numInput.value, 10);
-        modalWorkingList[idx].number = isNaN(val) ? '' : val;
-      }
       if (nameInput) {
         modalWorkingList[idx].name = nameInput.value;
       }
