@@ -1678,24 +1678,24 @@ function generateCourtImageBlob() {
       ctx.fillText(`${member.number}`, px, py);
 
       ctx.textBaseline = 'alphabetic';
-      ctx.font = 'bold 34px sans-serif';
+      ctx.font = 'bold 38px sans-serif';
       const nameWidth = ctx.measureText(member.name).width;
       const labelW = Math.max(nameWidth + 28, 120);
-      const labelH = 48;
+      const labelH = 52;
       const labelX = px - labelW / 2;
       const labelY = py + radius + 8;
 
-      ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.95)';
       ctx.beginPath();
       ctx.roundRect(labelX, labelY, labelW, labelH, 10);
       ctx.fill();
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
       ctx.lineWidth = 2;
       ctx.stroke();
 
       ctx.fillStyle = '#ffffff';
       ctx.textAlign = 'center';
-      ctx.fillText(member.name, px, labelY + 34);
+      ctx.fillText(member.name, px, labelY + 38);
 
       if (isServing) {
         ctx.font = '22px sans-serif';
